@@ -1,0 +1,296 @@
+#!/bin/bash
+
+###
+### usage: _md5batch_opt_default $FLAG $FLAG_VALUE
+###
+###        initialize a default value for $FLAG
+###
+__U_OPT_DEFAULT=_md5batch_opt_default
+function _md5batch_opt_default {
+  local FLAG=$1
+  local FLAG_VALUE=$2
+  local CURRENT_VALUE=`$__U_OPT_GET $FLAG`
+  if [ -z "$CURRENT_VALUE" ]; then
+    $__U_OPT_SET $FLAG $FLAG_VALUE
+  fi
+}
+
+###
+### usage: _md5batch_opt_location $FLAG
+###
+###        get namespaced variable name for $FLAG
+###
+__U_OPT_LOC=_md5batch_opt_location
+function _md5batch_opt_location {
+  local FLAG=$1
+  case "$FLAG" in
+    DEBUG)    echo "_md5batch_flag_debug"
+              ;;
+    FILE_EXT) echo "_md5batch_flag_ext"
+              ;;
+    *)        # DO NOTHING
+              ;;
+  esac
+}
+
+###
+### usage: _md5batch_opt_get $FLAG
+###
+###        get value of option $FLAG
+###
+__U_OPT_GET=_md5batch_opt_get
+function _md5batch_opt_get {
+  local FLAG=$1
+  local FLAG_LOC=`$__U_OPT_LOC $FLAG`
+  eval echo \$$FLAG_LOC
+}
+
+###
+### usage: _md5batch_opt_set $FLAG [$FLAG_VALUE]
+###
+###        enable option $FLAG, or set $FLAG's value to $FLAG_VALUE
+###
+__U_OPT_SET=_md5batch_opt_set
+function _md5batch_opt_set {
+  local FLAG=$1
+  local FLAG_VALUE=$2
+  local FLAG_LOC=`$__U_OPT_LOC $FLAG`
+  if [ -z "$FLAG_VALUE" ]; then
+    FLAG_VALUE="1"
+  fi
+  eval $FLAG_LOC=$FLAG_VALUE
+}
+
+###
+### usage: _md5batch_opt_enabled $FLAG
+###
+###        return "1" if boolean option $FLAG is set
+###
+__U_OPT_ENABLED=_md5batch_opt_enabled
+function _md5batch_opt_enabled {
+  local FLAG=$1
+  local MATCH_VALUE=$2
+  if [ -z "$MATCH_VALUE" ]; then
+    MATCH_VALUE="1"
+  fi
+  echo `$__U_OPT_CHECK $FLAG $MATCH_VALUE`
+}
+
+###
+### usage: _md5batch_opt_check $FLAG $MATCH_VALUE
+###
+###        return "1" if $FLAG value matches $MATCH_VALUE
+###
+__U_OPT_CHECK=_md5batch_opt_check
+function _md5batch_opt_check {
+  local FLAG=$1
+  local MATCH_VALUE=$2
+  local FLAG_VALUE=`$__U_OPT_GET $FLAG`
+  if [ "$MATCH_VALUE" = "$FLAG_VALUE" ]; then
+    echo 1
+  fi
+}
+
+###
+### usage: _md5batch_util_debug ...
+###
+###         write debug to console if enabled
+###
+__U_DEBUG=_md5batch_util_debug
+function _md5batch_util_debug {
+  local DEBUG_ENABLED=`$__U_OPT_ENABLED DEBUG`
+  if [ -n "$DEBUG_ENABLED" ]; then
+    echo -e \# ${*}
+  fi
+}
+
+###
+### usage: _md5batch_util_info ...
+###
+###         write log to console
+###
+__U_INFO=_md5batch_util_info
+function _md5batch_util_info {
+  echo -e "> ${*}"
+}
+
+###
+### usage: _md5batch_util_filepath $FILE
+###
+###         parse filename from $FILE's path
+###
+__U_FN=_md5batch_util_filename
+function _md5batch_util_filename {
+  local F_FULLPATH=$1
+  local F_NAME=$(basename "$F_FULLPATH")
+  # local F_EXT="${filename##*.}"
+  # local F_BASE="${filename%.*}"
+  echo $F_NAME
+}
+
+###
+### usage: _md5batch_util_filepath $FILE
+###
+###         get absolute path of $FILE's parent directory
+###
+__U_FP=_md5batch_util_filepath
+function _md5batch_util_filepath {
+  local F_FULLPATH=$1
+  local F_NAME=`$__U_FN $F_FULLPATH`
+  local F_RELPATH=${F_FULLPATH//$F_NAME/}
+  local F_ABSPATH=$(readlink -f $F_RELPATH)
+  echo $F_ABSPATH
+}
+
+###
+### usage: _md5batch_util_execute $ACTION "$ACTION_CHAIN" $INPUT_FILES ...
+###
+###        run command for each file in splat
+###
+__U_EXEC=_md5batch_util_execute
+function _md5batch_util_execute {
+  local ACTION=$1
+  local ACTION_CHAIN=$2
+  shift 2
+  local FILES=${*}
+
+  for FILE in $FILES; do
+    $__U_DEBUG $ACTION ${ACTION_CHAIN[*]} $FILE
+    $ACTION "$ACTION_CHAIN" $FILE
+  done
+}
+
+###
+### usage: _md5batch_util_md5 $ACTION $FILE
+###
+###        read raw md5 output, delegate forward action to _md5batch_lib_parse
+###
+__U_MD5=_md5batch_util_md5
+function _md5batch_util_md5 {
+  local ACTION_CHAIN=( $1 )
+  local FILE=$2
+  local RAW_MD5_OUTPUT=`md5sum $FILE`
+  local DELEGATE_ACTION=${ACTION_CHAIN[0]}
+  local FORWARD_ACTIONS=${ACTION_CHAIN[@]:1}
+  $__U_DEBUG $DELEGATE_ACTION "$FORWARD_ACTIONS" ${RAW_MD5_OUTPUT}
+  $DELEGATE_ACTION "$FORWARD_ACTIONS" ${RAW_MD5_OUTPUT}
+}
+
+###
+### usage: _md5batch_util_parse $ACTION ${RAW_MD5_OUTPUT}
+###
+###        parse FILENAME from FILEPATH, delegate to forward action
+###
+__U_PARSE=_md5batch_util_parse
+function _md5batch_util_parse {
+  local ACTION=$1
+  local HASH=$2
+  local FULL_PATH=$3
+  local FILENAME=`$__U_FN $FULL_PATH`
+  local FILEPATH=`$__U_FP $FULL_PATH`
+  $__U_DEBUG $ACTION $HASH ${FILEPATH} ${FILENAME}
+  $ACTION $HASH ${FILEPATH} ${FILENAME}
+}
+
+
+###
+### usage: _md5batch_lib_check $MATCH_HASH $FILEPATH $FILENAME
+###
+###        read md5sum and filename for a input file
+###
+__L_CHECK=_md5batch_lib_check
+function _md5batch_lib_check {
+  local HASH=$1
+  local FILEPATH=$2
+  local FILENAME=$3
+  local FILE_EXT=`$__U_OPT_GET FILE_EXT`
+  local MATCH_CONTENTS=( $(<$FILEPATH/$FILENAME.$FILE_EXT) )
+  local MATCH_HASH=${MATCH_CONTENTS[0]}
+  $__U_DEBUG "$HASH : $MATCH_HASH"
+  if [ "$HASH" = "$MATCH_HASH" ]; then
+    $__U_INFO "Verified $FILEPATH/$FILENAME"
+  else
+    $__U_INFO "Failed to verify $FILEPATH/$FILENAME"
+  fi
+}
+
+###
+### usage: _md5batch_lib_write $HASH $FILEPATH $FILENAME
+###
+###        write md5sum output to filename.md5sum
+###
+__L_WRITE=_md5batch_lib_write
+function _md5batch_lib_write {
+  local HASH=$1
+  local FILEPATH=$2
+  local FILENAME=$3
+  local FILE_EXT=`$__U_OPT_GET FILE_EXT`
+  local OUTPUT_DIR=$FILEPATH
+  $__U_DEBUG "$HASH  $FILENAME" > $FILEPATH/$FILENAME.$FILE_EXT
+  $__U_INFO "Writing $FILEPATH/$FILENAME.$FILE_EXT"
+}
+
+###
+### usage: _md5batch_run_config ${*}
+###
+###        configure state for passed switches
+###
+__R_CONFIG=_md5batch_run_config
+function _md5batch_run_config {
+  # TODO: STUB
+  local ACTION_SWITCH=$1
+  shift 1
+  echo "> config: NOT YET IMPLEMENTED."
+}
+
+###
+### usage: _md5batch_run_convert ${1, *}
+###
+###        verify .md5 for a file path (considering only the file name?)
+###
+__R_CONVERT=_md5batch_run_convert
+function _md5batch_run_convert {
+  # TODO: STUB
+  echo "> convert: NOT YET IMPLEMENTED."
+}
+
+###
+### usage: _md5batch_run_generate ${1, *}
+###
+###        get/parse md5sum and filename only, delegate output to md5batch_write
+###
+__R_GENERATE=_md5batch_run_generate
+function _md5batch_run_generate {
+  $__U_EXEC $__U_MD5 "$__U_PARSE $__L_WRITE" ${*}
+}
+
+###
+### usage: _md5batch_run_verify ${1, *}
+###
+###        verify .md5 for a file path (considering only the file name?)
+###
+__R_VERIFY=_md5batch_run_verify
+function _md5batch_run_verify {
+  $__U_EXEC $__U_MD5 "$__U_PARSE $__L_CHECK" ${*}
+}
+
+###
+### usage: _md5batch_run ${*}
+###
+###        check flags and execute appropriate operation
+###
+function _md5batch_run {
+  local ACTION_SWITCH=$1
+  $__R_CONFIG ${*}
+  $__U_OPT_DEFAULT FILE_EXT md5sum
+  shift 1
+  if [ "$ACTION_SWITCH" = "--convert" ]; then
+    $__R_CONVERT ${*}
+  elif [ "$ACTION_SWITCH" = "--generate" ]; then
+    $__R_GENERATE ${*}
+  else
+    $__R_VERIFY ${*}
+  fi
+}
+
+_md5batch_run ${*}
